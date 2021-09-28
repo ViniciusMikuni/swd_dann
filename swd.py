@@ -12,27 +12,33 @@ from tensorflow.python.ops import math_ops, array_ops, random_ops, nn_ops
 import matplotlib.pyplot as plt
 import imageio
 import platform
+from flip_gradient import flip_gradient
 if platform.system() == 'Darwin':
     import matplotlib
     matplotlib.use('TkAgg')
 
 
-def toyNet(X):
+def toyNet(X,flip=False):
     # Define network architecture
     with tf.variable_scope('Generator'):
         net = fully_connected(X, 15, activation_fn=tf.nn.relu)
         net = fully_connected(net, 15, activation_fn=tf.nn.relu)
         net = fully_connected(net, 15, activation_fn=tf.nn.relu)
     with tf.variable_scope('Classifier1'):
-        net1 = fully_connected(net, 15, activation_fn=tf.nn.relu)
+        if flip: net1 = flip_gradient(net,1.0)
+        else: net1=net
+        net1 = fully_connected(net1, 15, activation_fn=tf.nn.relu)
         net1 = fully_connected(net1, 15, activation_fn=tf.nn.relu)
         net1 = fully_connected(net1, 1, activation_fn=None)
         logits1 = tf.sigmoid(net1)
     with tf.variable_scope('Classifier2'):
-        net2 = fully_connected(net, 15, activation_fn=tf.nn.relu)
+        if flip: net2 = flip_gradient(net,1.0)
+        else: net2=net
+        net2 = fully_connected(net2, 15, activation_fn=tf.nn.relu)
         net2 = fully_connected(net2, 15, activation_fn=tf.nn.relu)
         net2 = fully_connected(net2, 1, activation_fn=None)
         logits2 = tf.sigmoid(net2)
+
     return logits1, logits2
 
 
@@ -97,7 +103,7 @@ if __name__ == "__main__":
     with tf.variable_scope('toyNet'):
         logits1, logits2 = toyNet(X)
     with tf.variable_scope('toyNet', reuse=True):
-        logits1_target, logits2_target = toyNet(X_target)
+        logits1_target, logits2_target = toyNet(X_target,flip=True)
 
     # Cost functions
     eps = 1e-05
@@ -117,13 +123,21 @@ if __name__ == "__main__":
     variables_classifier2 = get_variables(scope='toyNet' + '/Classifier2')
 
     optim_s = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
-        minimize(loss_s, var_list=variables_all)
-    optim_dis1 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
-        minimize(loss_s - loss_dis, var_list=variables_classifier1)
-    optim_dis2 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
-        minimize(loss_s - loss_dis, var_list=variables_classifier2)
+        minimize(loss_s-loss_dis, var_list=variables_all)
+    optim_s1 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
+        minimize(loss_s , var_list=variables_classifier1)
+    optim_s2 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
+        minimize(loss_s , var_list=variables_classifier2)
+    
+    optim_joint = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
+        minimize(-loss_dis, var_list=variables_all)
+
+
     optim_dis3 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
         minimize(loss_dis, var_list=variables_generator)
+
+    
+
 
     # Select predictions from C1
     predicted1 = tf.cast(logits1 > 0.5, dtype=tf.float32)
@@ -141,7 +155,8 @@ if __name__ == "__main__":
             train = optim_s
         else:
             print('-> Perform training with domain adaptation.')
-            train = tf.group(optim_s, optim_dis1, optim_dis2, optim_dis3)
+            #train = tf.group(optim_s, optim_dis1, optim_dis2, optim_dis3)
+            train = tf.group(optim_s,optim_s1,optim_s2)
 
         # Initialize variables
         net_variables = tf.global_variables() + tf.local_variables()
@@ -152,6 +167,7 @@ if __name__ == "__main__":
             if step % 1000 == 0:
                 print("Iteration: %d / %d" % (step, 10000))
                 Z = sess.run(predicted1, feed_dict={X: np.c_[xx.ravel(), yy.ravel()]})
+
                 Z = Z.reshape(xx.shape)
                 f = plt.figure()
                 plt.contourf(xx, yy, Z, cmap=plt.cm.copper_r, alpha=0.9)
@@ -167,8 +183,10 @@ if __name__ == "__main__":
                                   opts.mode + '_iter' + str(step) + ".png"))
                 plt.close()
             # Forward and backward propagation
-            _ = sess.run([train], feed_dict={X: x_s, Y: y_s, X_target: x_t})
-
+            _,loss_emd = sess.run([train,loss_dis], feed_dict={X: x_s, Y: y_s, X_target: x_t})
+            #_ = sess.run(train, feed_dict={X: x_s, Y: y_s, X_target: x_t})
+            if step%1000==0:
+                print(loss_emd)
         # Save GIF
         imageio.mimsave(opts.mode + '.gif', gif_images, duration=0.8)
         print("[Finished]\n-> Please see the current folder for outputs.")
