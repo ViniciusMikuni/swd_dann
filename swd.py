@@ -123,21 +123,15 @@ if __name__ == "__main__":
     variables_classifier2 = get_variables(scope='toyNet' + '/Classifier2')
 
     optim_s = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
-        minimize(loss_s-loss_dis, var_list=variables_all)
+        minimize(loss_s, var_list=variables_all)
+    
+    optim_flip = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
+        minimize(loss_s - loss_dis, var_list=variables_all)
     optim_s1 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
         minimize(loss_s , var_list=variables_classifier1)
     optim_s2 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
         minimize(loss_s , var_list=variables_classifier2)
     
-    optim_joint = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
-        minimize(-loss_dis, var_list=variables_all)
-
-
-    optim_dis3 = tf.train.GradientDescentOptimizer(learning_rate=0.005).\
-        minimize(loss_dis, var_list=variables_generator)
-
-    
-
 
     # Select predictions from C1
     predicted1 = tf.cast(logits1 > 0.5, dtype=tf.float32)
@@ -155,8 +149,7 @@ if __name__ == "__main__":
             train = optim_s
         else:
             print('-> Perform training with domain adaptation.')
-            #train = tf.group(optim_s, optim_dis1, optim_dis2, optim_dis3)
-            train = tf.group(optim_s,optim_s1,optim_s2)
+            train = optim_flip
 
         # Initialize variables
         net_variables = tf.global_variables() + tf.local_variables()
